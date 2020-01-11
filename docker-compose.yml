@@ -1,0 +1,97 @@
+version: '3.7'
+
+services:
+  mysql:
+    image: mariadb:10.3
+    restart: always
+    container_name: ${SITE_NAME}-db
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_ALLOW_EMPTY_PASSWORD=no
+      - TZ=${TZ}
+    volumes:
+      - db:/var/lib/mysql
+    networks:
+      - net
+    healthcheck:
+      test: mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD && test '0' -eq $$(ps aux | awk '{print $$11}' | grep -c -e '^mysql$$')
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: '500m'
+    labels:
+      - "traefik.enable=false"
+      - "docker.group=${SITE_NAME}"
+     
+  web:
+    image: nginx
+    restart: always
+    container_name: ${SITE_NAME}-web
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - wordpress:/var/www/html
+      - ./etc/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./etc/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /var/log/nginx/${SITE_NAME}:/var/log/nginx
+    networks:
+      - net
+      - traefik
+    depends_on:
+      - php-fpm
+    healthcheck:
+      test: pidof nginx
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: '500m'
+    labels:
+      - "traefik.backend=${SITE_NAME}"       
+      - "traefik.frontend.rule=Host:${SITE_URL}"       
+      - "traefik.docker.network=traefik"       
+      - "traefik.port=80"
+      - "traefik.frontend.passHostHeader=true"
+      - "docker.group=${SITE_NAME}"
+    
+  php-fpm:
+    image: wordpress:php7.4-fpm
+    container_name: ${SITE_NAME}-php
+    restart: always
+    environment:
+      - WORDPRESS_DB_USER=${MYSQL_USER}
+      - WORDPRESS_DB_PASSWORD=${MYSQL_PASSWORD}
+      - WORDPRESS_DB_HOST=mysql
+      - WORDPRESS_DB_NAME=${MYSQL_DATABASE}
+      - TZ=${TZ}
+    volumes:
+      - wordpress:/var/www/html
+      - ./etc/php/conf.d/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
+    networks:
+      - net
+    depends_on:
+      - mysql
+    healthcheck:
+      test: pidof php-fpm
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: '500m'
+    labels:
+      - "traefik.enable=false"
+      - "docker.group=${SITE_NAME}"
+
+volumes:
+  db:
+  wordpress:
+
+networks:
+  net:
+  traefik:
+    external:
+      name: traefik
